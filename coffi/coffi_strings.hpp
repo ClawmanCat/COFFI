@@ -173,9 +173,6 @@ class coffi_strings : public virtual string_to_name_provider
     {
         std::string ret;
 
-        char str2[8];
-        memcpy(str2, str, 8);
-
         if (*(uint32_t*)str == 0 && strings_) {
             uint32_t off = *(uint32_t*)(str + sizeof(uint32_t));
             ret          = strings_ + off;
