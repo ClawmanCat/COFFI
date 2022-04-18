@@ -30,6 +30,7 @@ THE SOFTWARE.
 #define COFFI_TYPES_HPP
 
 #include <string>
+#include <type_traits>
 
 namespace COFFI {
 
@@ -734,6 +735,21 @@ struct coff_file_header
     uint16_t flags; //!< The flags that indicate the attributes of the file
 };
 
+//! BigObj COFF header. Used for Object files with more than 64K sections.
+struct coff_file_header_bigobj
+{
+    uint16_t magic_1;             //!< Identifies this as a BigObj header. Value is always 0x0000
+    uint16_t magic_2;             //!< Identifies this as a BigObj header. Value is always 0xFFFF
+    uint16_t version;             //!< Indicates version of COFF file structure
+    uint16_t machine;             //!< Identifies the type of target machine
+    uint32_t time_data_stamp;     //!< A C run-time time_t value
+    uint8_t  UUID[16];            //!< Some form of UUID. Cannot find any documentation of what exactly
+    uint32_t reserved[4];         //!< Currently unused fields
+    uint32_t sections_count;      //!< The size of the section table
+    uint32_t symbol_table_offset; //!< The file offset of the COFF symbol table, or zero if no COFF symbol table is present
+    uint32_t symbols_count;       //!< The number of entries in the symbol table
+};
+
 //! Texas Instruments COFF header
 struct coff_file_header_ti
 {
@@ -860,22 +876,28 @@ struct win_header_pe_plus
 //------------------------------------------------------------------------------
 // Symbol records
 
-//! Symbol record
-struct symbol_record
+//! Base template for symbol records. SecIntT is the integer type to hold the section number (uint16 normally, uint32 for BigObj).
+template <typename SecIntT> struct symbol_record_tmpl
 {
     char     name[8];
     uint32_t value;
-    uint16_t section_number;
+    SecIntT  section_number;
     uint16_t type;
     uint8_t  storage_class;
     uint8_t  aux_symbols_number;
 };
 
+using symbol_record     = symbol_record_tmpl<uint16_t>;
+using big_symbol_record = symbol_record_tmpl<uint32_t>;
+
+
 //! Generic auxiliary symbol record, covers any type of auxiliary symbol
+//! Note that auxiliary symbols for BigObj symbols are bigger, but the extra data is unused, so we can ignore it.
 struct auxiliary_symbol_record
 {
     char value[sizeof(symbol_record)];
 };
+
 
 //! PE auxiliary format 1: Function definitions
 struct auxiliary_symbol_record_1
@@ -1016,7 +1038,9 @@ struct line_number
 //------------------------------------------------------------------------------
 // Interfaces classes (pure virtual classes)
 //------------------------------------------------------------------------------
-class symbol;
+template <typename Record> class symbol_tmpl;
+using narrow_symbol = symbol_tmpl<symbol_record>;
+using symbol        = symbol_tmpl<big_symbol_record>;
 
 //! Interface for accessing to the string table
 class string_to_name_provider

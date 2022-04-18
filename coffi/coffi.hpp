@@ -120,9 +120,26 @@ class coffi : public coffi_strings,
             stream.seekg(0);
         }
 
-        // Try to read a PE header
-        coff_header_ = new coff_header_impl;
-        if (coff_header_->load(stream)) {
+        // Try to read a BigObj COFF file header
+        coff_header_ = new coff_header_impl_bigobj;
+        if (!coff_header_->load(stream)) {
+            delete coff_header_;
+            coff_header_ = nullptr;
+            stream.seekg(0);
+        }
+
+        // Try to read a normal COFF file header
+        if (!coff_header_) {
+            coff_header_ = new coff_header_impl;
+            if (!coff_header_->load(stream)) {
+                delete coff_header_;
+                coff_header_ = nullptr;
+                stream.seekg(0);
+            }
+        }
+
+        // Parse the COFF header if we either have a normal one or a BigObj header
+        if (coff_header_) {
 
             // Check the machine
             static const std::vector<uint16_t> machines = {

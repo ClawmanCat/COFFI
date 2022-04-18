@@ -217,6 +217,7 @@ class coff_header
     COFFI_GET_SET_ACCESS_DECL(uint16_t, optional_header_size);
     COFFI_GET_SET_ACCESS_DECL(uint16_t, flags);
     COFFI_GET_SET_ACCESS_DECL(uint16_t, target_id);
+    COFFI_GET_ACCESS_DECL(bool, is_bigobj);
 
     COFFI_GET_SIZEOF_DECL();
     //! @endaccessors
@@ -246,8 +247,7 @@ template <class T> class coff_header_impl_tmpl : public coff_header
     COFFI_GET_SET_ACCESS(uint32_t, time_data_stamp);
     COFFI_GET_SET_ACCESS(uint32_t, symbol_table_offset);
     COFFI_GET_SET_ACCESS(uint32_t, symbols_count);
-    COFFI_GET_SET_ACCESS(uint16_t, optional_header_size);
-    COFFI_GET_SET_ACCESS(uint16_t, flags);
+    COFFI_GET_ACCESS_CONSTANT(bool, is_bigobj, false);
 
     COFFI_GET_SIZEOF();
     //! @endaccessors
@@ -281,9 +281,35 @@ class coff_header_impl : public coff_header_impl_tmpl<coff_file_header>
   public:
     //! @accessors{coff_header_impl}
     COFFI_GET_SET_ACCESS(uint16_t, machine);
+    COFFI_GET_SET_ACCESS(uint16_t, flags);
+    COFFI_GET_SET_ACCESS(uint16_t, optional_header_size);
     COFFI_GET_SET_ACCESS_NONE(uint16_t, version);
     COFFI_GET_SET_ACCESS_NONE(uint16_t, target_id);
     //! @endaccessors
+};
+
+//! Class for accessing a BigObj COFF file header.
+class coff_header_impl_bigobj : public coff_header_impl_tmpl<coff_file_header_bigobj>
+{
+  public:
+    //! @accessors{coff_header_impl}
+    COFFI_GET_SET_ACCESS(uint16_t, machine);
+    COFFI_GET_SET_ACCESS(uint16_t, version);
+    COFFI_GET_SET_ACCESS_NONE(uint16_t, target_id);
+    COFFI_GET_SET_ACCESS_CONSTANT(uint16_t, flags, 0);
+    COFFI_GET_SET_ACCESS_CONSTANT(uint16_t, optional_header_size, 0);
+    COFFI_GET_ACCESS_CONSTANT(bool, is_bigobj, true);
+    //! @endaccessors
+
+    bool load(std::istream& stream) {
+        bool was_read = coff_header_impl_tmpl<coff_file_header_bigobj>::load(stream);
+        if (!was_read) return false;
+
+        if (header.magic_1 != 0x0000) return false;
+        if (header.magic_2 != 0xFFFF) return false;
+
+        return true;
+    }
 };
 
 //------------------------------------------------------------------------------
@@ -294,6 +320,8 @@ class coff_header_impl_ti : public coff_header_impl_tmpl<coff_file_header_ti>
     //! @accessors{coff_header_impl_ti}
     COFFI_GET_SET_ACCESS(uint16_t, version);
     COFFI_GET_SET_ACCESS(uint16_t, target_id);
+    COFFI_GET_SET_ACCESS(uint16_t, flags);
+    COFFI_GET_SET_ACCESS(uint16_t, optional_header_size);
     COFFI_GET_SET_ACCESS_NONE(uint16_t, machine);
     //! @endaccessors
 };

@@ -138,9 +138,9 @@ class coffi_strings : public virtual string_to_name_provider
             return true;
         }
 
-        uint32_t strings_offset =
-            header->get_symbol_table_offset() +
-            header->get_symbols_count() * sizeof(symbol_record);
+        uint32_t symbol_size    = header->get_is_bigobj() ? sizeof(big_symbol_record) : sizeof(symbol_record);
+        uint32_t strings_offset = header->get_symbol_table_offset() + header->get_symbols_count() * symbol_size;
+
         stream.seekg(strings_offset);
         stream.read(strings_, 4);
         char* new_strings = new char[get_strings_size()];
@@ -172,6 +172,9 @@ class coffi_strings : public virtual string_to_name_provider
                                                 bool        is_section) const
     {
         std::string ret;
+
+        char str2[8];
+        memcpy(str2, str, 8);
 
         if (*(uint32_t*)str == 0 && strings_) {
             uint32_t off = *(uint32_t*)(str + sizeof(uint32_t));

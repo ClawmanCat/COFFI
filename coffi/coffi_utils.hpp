@@ -101,6 +101,25 @@ THE SOFTWARE.
             NAME) "' is not applicable to this COFF version");   \
     }
 
+//! Defines a **get_NAME** function, which returns **VALUE**.
+#define COFFI_GET_ACCESS_CONSTANT(TYPE, NAME, VALUE)             \
+    TYPE get_##NAME() const                                      \
+    {                                                            \
+        return VALUE;                                            \
+    }                                                            \
+
+//! Defines a **get_NAME** function, which returns **VALUE**, and disables **set_NAME**.
+#define COFFI_GET_SET_ACCESS_CONSTANT(TYPE, NAME, VALUE)         \
+    TYPE get_##NAME() const                                      \
+    {                                                            \
+        return VALUE;                                            \
+    }                                                            \
+    void set_##NAME(TYPE)                                        \
+    {                                                            \
+        throw std::runtime_error("The header field '" STRINGIFY( \
+            NAME) "' is not applicable to this COFF version");   \
+    }
+
 //! Declares the **get_sizeof** function for returning the size of the COFF file structure.
 #define COFFI_GET_SIZEOF_DECL() virtual size_t get_sizeof() const = 0
 

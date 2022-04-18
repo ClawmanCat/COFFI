@@ -38,11 +38,11 @@ namespace COFFI {
 
 //-------------------------------------------------------------------------
 //! Class for accessing a COFF symbol.
-class symbol
+template <typename Record> class symbol_tmpl
 {
   public:
     //---------------------------------------------------------------------
-    symbol(string_to_name_provider* stn) : stn_{stn}
+    symbol_tmpl(string_to_name_provider* stn) : stn_{stn}
     {
         std::fill_n(reinterpret_cast<char*>(&header), sizeof(header), '\0');
     }
@@ -89,6 +89,8 @@ class symbol
     //---------------------------------------------------------------------
     bool load(std::istream& stream)
     {
+        const uint32_t aux_padding = sizeof(Record) - sizeof(auxiliary_symbol_record);
+
         stream.read(reinterpret_cast<char*>(&header), sizeof(header));
         if (stream.gcount() != sizeof(header)) {
             return false;
@@ -96,8 +98,13 @@ class symbol
 
         for (uint8_t i = 0; i < get_aux_symbols_number(); ++i) {
             auxiliary_symbol_record a;
-            stream.read(reinterpret_cast<char*>(&a), sizeof(symbol_record));
-            if (stream.gcount() != sizeof(symbol_record)) {
+
+            auto startg = stream.tellg();
+            stream.read(reinterpret_cast<char*>(&a), sizeof(a));
+            stream.seekg(stream.tellg() + (std::streamoff) aux_padding);
+            auto endg = stream.tellg();
+
+            if ((endg - startg) != sizeof(Record)) {
                 return false;
             }
             auxs.push_back(a);
@@ -108,20 +115,72 @@ class symbol
     //---------------------------------------------------------------------
     void save(std::ostream& stream)
     {
+        // Padding may be zero but we cannot have a zero size array, so always add one extra byte.
+        const char aux_padding[sizeof(Record) - sizeof(auxiliary_symbol_record) + 1] = { };
+
         set_aux_symbols_number(auxs.size());
         stream.write(reinterpret_cast<char*>(&header), sizeof(header));
+
         for (auto aux : auxs) {
-            stream.write(reinterpret_cast<char*>(&aux), sizeof(symbol_record));
+            stream.write(reinterpret_cast<char*>(&aux), sizeof(aux));
+            stream.write(aux_padding, sizeof(Record) - sizeof(auxiliary_symbol_record));
         }
     }
 
     //---------------------------------------------------------------------
+    bool is_bigobj_record() const {
+        return std::is_same_v<Record, big_symbol_record>;
+    }
+
+    //---------------------------------------------------------------------
+    symbol_tmpl<big_symbol_record> widen_record() const {
+        big_symbol_record new_header;
+        memcpy(new_header.name, header.name, 8);
+        new_header.value              = header.value;
+        new_header.section_number     = (uint32_t) header.section_number;
+        new_header.type               = header.type;
+        new_header.storage_class      = header.storage_class;
+        new_header.aux_symbols_number = header.aux_symbols_number;
+
+        symbol_tmpl<big_symbol_record> result;
+        result.header = new_header;
+        result.auxs   = auxs;
+        result.index_ = index_;
+        result.stn_   = stn_;
+
+        return result;
+    }
+
+    //---------------------------------------------------------------------
+    symbol_tmpl<symbol_record> narrow_record() const {
+        symbol_record new_header;
+        memcpy(new_header.name, header.name, 8);
+        new_header.value              = header.value;
+        new_header.section_number     = (uint16_t) header.section_number;
+        new_header.type               = header.type;
+        new_header.storage_class      = header.storage_class;
+        new_header.aux_symbols_number = header.aux_symbols_number;
+
+        symbol_tmpl<symbol_record> result;
+        result.header = new_header;
+        result.auxs   = auxs;
+        result.index_ = index_;
+        result.stn_   = stn_;
+
+        return result;
+    }
+
   protected:
-    symbol_record                        header;
+    Record                               header;
     std::vector<auxiliary_symbol_record> auxs;
     uint32_t                             index_;
     string_to_name_provider*             stn_;
+
+  private:
+    template <typename> friend class symbol_tmpl;
+    symbol_tmpl() = default;
 };
+
 
 //-------------------------------------------------------------------------
 //! Class for accessing the symbol table.
@@ -130,7 +189,7 @@ class coffi_symbols : public virtual symbol_provider,
 {
   public:
     //---------------------------------------------------------------------
-    coffi_symbols() {}
+    coffi_symbols() : is_bigobj(false) {}
 
     //---------------------------------------------------------------------
     ~coffi_symbols() { clean_symbols(); }
@@ -210,7 +269,7 @@ class coffi_symbols : public virtual symbol_provider,
     void clean_symbols() { symbols_.clear(); }
 
     //---------------------------------------------------------------------
-    bool load_symbols(std::istream& stream, const coff_header* header)
+    template <typename Symbol> bool load_symbols_impl(std::istream& stream, const coff_header* header)
     {
         if (header->get_symbol_table_offset() == 0) {
             return true;
@@ -218,23 +277,35 @@ class coffi_symbols : public virtual symbol_provider,
 
         stream.seekg(header->get_symbol_table_offset());
         for (uint32_t i = 0; i < header->get_symbols_count(); ++i) {
-            symbol s{this};
+            Symbol s{this};
             if (!s.load(stream)) {
                 return false;
             }
             s.set_index(i);
             i += s.get_auxiliary_symbols().size();
-            symbols_.push_back(s);
+            symbols_.push_back(s.widen_record());
         }
 
         return true;
     }
 
+    bool load_symbols(std::istream& stream, const coff_header* header) {
+        is_bigobj = header->get_is_bigobj();
+
+        if (is_bigobj) {
+            return load_symbols_impl<symbol>(stream, header);
+        } else {
+            return load_symbols_impl<narrow_symbol>(stream, header);
+        }
+    }
+
     //---------------------------------------------------------------------
     void save_symbols(std::ostream& stream)
     {
-        for (auto s : symbols_) {
-            s.save(stream);
+        if (is_bigobj) {
+            for (auto s : symbols_) s.save(stream);
+        } else {
+            for (auto s : symbols_) s.narrow_record().save(stream);
         }
     }
 
@@ -244,13 +315,14 @@ class coffi_symbols : public virtual symbol_provider,
         uint32_t filesize = 0;
         for (auto s : symbols_) {
             filesize +=
-                sizeof(symbol_record) * (1 + s.get_auxiliary_symbols().size());
+                sizeof(big_symbol_record) * (1 + s.get_auxiliary_symbols().size());
         }
         return filesize;
     }
 
     //---------------------------------------------------------------------
     std::vector<symbol> symbols_;
+    bool is_bigobj;
 };
 
 } // namespace COFFI
